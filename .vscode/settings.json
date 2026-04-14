@@ -1,0 +1,12 @@
+{
+  "python.formatting.provider": "black",
+  "python.analysis.extraPaths": [
+    "./src"
+  ],
+  "isort.args": [
+    "--profile=black"
+  ],
+  "cursorpyright.analysis.extraPaths": [
+    "./src"
+  ]
+}
