@@ -139,3 +139,6 @@ linear baseline:
 
 `compare_jongno_policies.py` prints JSON including mean reward/score for both
 policies and the delta (`gnn_lite - linear`).
+
+# Acknowledgements
+This project is forked from [python_mini_metro](https://github.com/yanfengliu/python_mini_metro) by [Yanfeng Liu](https://github.com/yanfengliu).
