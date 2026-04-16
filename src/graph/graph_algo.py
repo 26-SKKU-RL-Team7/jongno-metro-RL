@@ -1,7 +1,9 @@
+import heapq
 from typing import Dict, List
 
 from entity.path import Path
 from entity.station import Station
+from geometry.utils import distance
 from graph.node import Node
 
 
@@ -30,9 +32,19 @@ def build_station_nodes_dict(stations: List[Station], paths: List[Path]):
                 node = connection[idx]
                 if node == root:
                     if idx - 1 >= 0:
-                        root.neighbors.add(connection[idx - 1])
+                        neighbor = connection[idx - 1]
+                        root.neighbors.add(neighbor)
+                        d = distance(root.station.position, neighbor.station.position)
+                        root.dist_to_neighbor[neighbor] = min(
+                            root.dist_to_neighbor.get(neighbor, float("inf")), d
+                        )
                     if idx + 1 <= len(connection) - 1:
-                        root.neighbors.add(connection[idx + 1])
+                        neighbor = connection[idx + 1]
+                        root.neighbors.add(neighbor)
+                        d = distance(root.station.position, neighbor.station.position)
+                        root.dist_to_neighbor[neighbor] = min(
+                            root.dist_to_neighbor.get(neighbor, float("inf")), d
+                        )
         station_nodes.remove(root)
         station_nodes_dict[root.station] = root
 
@@ -59,3 +71,39 @@ def bfs(start: Node, end: Node) -> List[Node]:
 
     # If no path was found, return an empty list
     return []
+
+
+def dijkstra(start: Node, end: Node) -> tuple[List[Node], float]:
+    """물리적 거리 기반 최단 경로.
+
+    반환: (노드 경로, 총 거리px).
+    경로 없으면 ([], inf). start == end이면 ([start], 0).
+    """
+    if start == end:
+        return [start], 0.0
+
+    counter = 0
+    heap: list = [(0.0, counter, start, [start])]
+    visited: set = set()
+
+    while heap:
+        cost, _, node, path = heapq.heappop(heap)
+        if node in visited:
+            continue
+        visited.add(node)
+        if node == end:
+            return path, cost
+
+        for neighbor in node.neighbors:
+            if neighbor in visited:
+                continue
+            edge_dist = node.dist_to_neighbor.get(neighbor, float("inf"))
+            if edge_dist == float("inf"):
+                continue
+            counter += 1
+            heapq.heappush(
+                heap,
+                (cost + edge_dist, counter, neighbor, path + [neighbor]),
+            )
+
+    return [], float("inf")

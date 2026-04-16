@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Set
+from typing import Dict, Set
 
 from entity.path import Path
 from entity.station import Station
@@ -13,6 +13,7 @@ class Node:
         self.station = station
         self.neighbors: Set[Node] = set()
         self.paths: Set[Path] = set()
+        self.dist_to_neighbor: Dict[Node, float] = {}
 
     def __eq__(self, other: Node) -> bool:
         return self.station == other.station

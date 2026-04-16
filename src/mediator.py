@@ -44,7 +44,7 @@ from event.mouse import MouseEvent
 from event.type import KeyboardEventType, MouseEventType
 from geometry.point import Point
 from geometry.type import ShapeType
-from graph.graph_algo import bfs, build_station_nodes_dict
+from graph.graph_algo import bfs, dijkstra, build_station_nodes_dict
 from graph.node import Node
 from travel_plan import TravelPlan
 from type import Color
@@ -1071,11 +1071,11 @@ class Mediator:
     ) -> TravelPlan | None:
         possible_dst_stations = self.get_destination_stations_for_passenger(passenger)
         best_node_path: List[Node] | None = None
-        best_path_cost: tuple[int, int] | None = None
+        best_path_cost: float | None = None
         start = station_nodes_dict[station]
         for possible_dst_station in possible_dst_stations:
             end = station_nodes_dict[possible_dst_station]
-            node_path = bfs(start, end)
+            node_path, path_cost = dijkstra(start, end)
             if len(node_path) <= 1:
                 continue
             reduced_node_path = self.skip_stations_on_same_path(list(node_path))
@@ -1089,7 +1089,7 @@ class Mediator:
                 or first_hop_path.id != required_first_path.id
             ):
                 continue
-            candidate_cost = (len(node_path), len(reduced_node_path))
+            candidate_cost = path_cost
             if best_path_cost is None or candidate_cost < best_path_cost:
                 best_path_cost = candidate_cost
                 best_node_path = reduced_node_path
@@ -1136,11 +1136,11 @@ class Mediator:
                         passenger
                     )
                     best_node_path: List[Node] | None = None
-                    best_path_cost: tuple[int, int] | None = None
+                    best_path_cost: float | None = None
                     for possible_dst_station in possible_dst_stations:
                         start = station_nodes_dict[station]
                         end = station_nodes_dict[possible_dst_station]
-                        node_path = bfs(start, end)
+                        node_path, path_cost = dijkstra(start, end)
                         if len(node_path) == 1:
                             station.remove_passenger(passenger)
                             self.passengers.remove(passenger)
@@ -1153,7 +1153,7 @@ class Mediator:
                             reduced_node_path = self.skip_stations_on_same_path(
                                 list(node_path)
                             )
-                            candidate_cost = (len(node_path), len(reduced_node_path))
+                            candidate_cost = path_cost
                             if (
                                 best_path_cost is None
                                 or candidate_cost < best_path_cost
