@@ -125,6 +125,9 @@ class Mediator:
         self.is_game_over = False
         self.passenger_max_wait_time_ms = passenger_max_wait_time_ms
         self.max_waiting_passengers = max_waiting_passengers
+        # When set in RL mode, path creation uses this max path count instead of
+        # unlocked_num_paths (which is tied to arcade unlock rules).
+        self.rl_path_creation_cap: int | None = None
 
     def generate_distinct_path_colors(self, path_count: int) -> Dict[Color, bool]:
         if path_count <= 0:
@@ -476,11 +479,21 @@ class Mediator:
             return True
         return False
 
+    def _max_paths_for_creation(self) -> int:
+        if self.is_rl_mode and self.rl_path_creation_cap is not None:
+            return int(self.rl_path_creation_cap)
+        return int(self.unlocked_num_paths)
+
     def start_path_on_station(self, station: Station) -> None:
-        if len(self.paths) < self.unlocked_num_paths:
+        if len(self.paths) < self._max_paths_for_creation():
             self.is_creating_path = True
             assigned_color = (0, 0, 0)
-            available_colors = list(self.path_colors.keys())[: self.unlocked_num_paths]
+            if self.is_rl_mode and self.rl_path_creation_cap is not None:
+                available_colors = list(self.path_colors.keys())
+            else:
+                available_colors = list(self.path_colors.keys())[
+                    : self.unlocked_num_paths
+                ]
             for path_color in available_colors:
                 taken = self.path_colors[path_color]
                 if not taken:
@@ -497,7 +510,7 @@ class Mediator:
     def create_path_from_station_indices(
         self, station_indices: List[int], loop: bool = False
     ) -> Path | None:
-        if len(station_indices) < 2 or len(self.paths) >= self.unlocked_num_paths:
+        if len(station_indices) < 2 or len(self.paths) >= self._max_paths_for_creation():
             return None
         if any(
             idx < 0 or idx >= len(self.stations) for idx in station_indices

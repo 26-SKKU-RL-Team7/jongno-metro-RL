@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict
 
 from jongno_env import JongnoMetroEnv
+from jongno_line_env import JongnoLineSelectionEnv
 
 
 EnvFactory = Callable[[Dict[str, Any]], Any]
@@ -30,6 +31,21 @@ def _build_jongno_dispatch(overrides: Dict[str, Any]) -> JongnoMetroEnv:
     }
     config.update(overrides)
     return JongnoMetroEnv(**config)
+
+
+def _build_jongno_line_select(overrides: Dict[str, Any]) -> JongnoLineSelectionEnv:
+    config: Dict[str, Any] = {
+        "max_budget": 15,
+        "dt_ms": 1000,
+        "hour_advance_per_step": 1.0,
+        "demand_spawn_scale": 0.005,
+        "reward_waiting_weight": 0.1,
+        "score_reward_weight": 1.0,
+        "invalid_action_penalty": 25.0,
+        "line_eval_rollout_steps": 120,
+    }
+    config.update(overrides)
+    return JongnoLineSelectionEnv(**config)
 
 
 def _build_jongno_peak_stress(overrides: Dict[str, Any]) -> JongnoMetroEnv:
@@ -59,6 +75,18 @@ TASK_SPECS: Dict[str, TaskSpec] = {
         description="Peak-hour stress dispatch with stronger waiting penalties",
         env_factory=_build_jongno_peak_stress,
         default_steps=800,
+    ),
+    "jongno_line_select": TaskSpec(
+        task_id="jongno_line_select",
+        description="Stage-1: pick one candidate line from jongno_config candidate_new_lines",
+        env_factory=_build_jongno_line_select,
+        default_steps=1,
+    ),
+    "jongno_dispatch_extra_line": TaskSpec(
+        task_id="jongno_dispatch_extra_line",
+        description="Stage-2: dispatch on base jongno lines plus extra_lines from env overrides",
+        env_factory=_build_jongno_dispatch,
+        default_steps=600,
     ),
 }
 

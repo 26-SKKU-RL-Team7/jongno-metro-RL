@@ -39,6 +39,7 @@ class JongnoMetroEnv(gym.Env):
         budget_exceeded_penalty: float = 2.0,
         passenger_max_wait_time_ms: int = default_passenger_max_wait_time_ms,
         max_waiting_passengers: int = default_max_waiting_passengers,
+        extra_lines: Dict[str, List[str]] | None = None,
     ):
         super().__init__()
         # 1. JSON 설정 로드하여 실제 가용 노선 수 확인
@@ -48,7 +49,13 @@ class JongnoMetroEnv(gym.Env):
         self.env_config_path = os.path.abspath(config_path)
         with open(self.env_config_path, "r", encoding="utf-8") as f:
             self.env_config: Dict = json.load(f)
-        
+
+        # Stage-2: merge lines learned or chosen in stage-1 (same station names as base).
+        if extra_lines:
+            merged_lines = dict(self.env_config.get("lines", {}))
+            merged_lines.update(extra_lines)
+            self.env_config["lines"] = merged_lines
+
         self.num_stations = len(self.env_config["stations"])
         self.num_lines = len(self.env_config["lines"]) # 실제 생성될 노선 수
         self.max_budget = max_budget
@@ -82,6 +89,7 @@ class JongnoMetroEnv(gym.Env):
             shape=(self.num_stations + self.num_lines + 1,), 
             dtype=np.float32
         )
+        self.policy_feature_dim = 3 + self.num_stations + self.num_lines
 
         # demand-based sampling caches
         self._dest_probs_no_origin_by_hour: List[np.ndarray] = []

@@ -43,7 +43,9 @@ def train(
         obs = np.asarray(reset_result, dtype=np.float32)
 
     num_actions = int(env.action_space.n)
-    feature_dim = int(3 + env.num_stations + env.num_lines)
+    feature_dim = int(
+        getattr(env, "policy_feature_dim", 3 + env.num_stations + env.num_lines)
+    )
     weights = rng.normal(loc=0.0, scale=0.01, size=(num_actions, feature_dim)).astype(
         np.float32
     )
