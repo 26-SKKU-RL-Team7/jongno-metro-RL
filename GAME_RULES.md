@@ -55,10 +55,12 @@ This document summarizes the game rules currently implemented in code.
 ## Passenger Routing and Transfers
 
 - Passengers compute travel plans based on currently available, completed lines.
-- Routing is shortest-hop style (BFS over the station graph).
+- When a passenger spawns, the game computes reachable routes to matching destinations,
+  keeps the 3 shortest-distance routes, and samples 1 route with probability inversely
+  proportional to route distance.
 - If multiple stations match a destination shape, the game uses one with a valid route.
 - Passengers can transfer between lines at stations according to their travel plan.
-- If no route exists, passengers wait until the network changes.
+- After spawn, passengers keep their chosen route for the rest of the trip.
 
 ## Timing and Spawning
 

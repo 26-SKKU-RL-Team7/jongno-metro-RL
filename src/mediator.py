@@ -15,6 +15,7 @@ from config import (
     num_stations,
     passenger_color,
     passenger_max_wait_time_ms,
+    passenger_route_choice_top_k,
     passenger_size,
     passenger_spawning_interval_step,
     passenger_spawning_start_step,
@@ -128,6 +129,63 @@ class Mediator:
         # When set in RL mode, path creation uses this max path count instead of
         # unlocked_num_paths (which is tied to arcade unlock rules).
         self.rl_path_creation_cap: int | None = None
+
+    def _build_travel_plan_from_node_path(
+        self, station: Station, node_path: List[Node]
+    ) -> TravelPlan | None:
+        if len(node_path) <= 1:
+            return None
+        reduced_node_path = self.skip_stations_on_same_path(list(node_path))
+        if len(reduced_node_path) <= 1:
+            return None
+        travel_plan = TravelPlan(reduced_node_path[1:])
+        next_station = travel_plan.get_next_station()
+        if next_station is None:
+            return None
+        travel_plan.next_path = self.find_shared_path(station, next_station)
+        if travel_plan.next_path is None:
+            return None
+        return travel_plan
+
+    def _sample_route_candidate(
+        self,
+        candidate_paths: List[tuple[List[Node], float]],
+    ) -> List[Node] | None:
+        if not candidate_paths:
+            return None
+        top_candidates = sorted(candidate_paths, key=lambda x: x[1])[
+            :passenger_route_choice_top_k
+        ]
+        weights = [1.0 / max(path_cost, 1e-9) for _, path_cost in top_candidates]
+        selected_path, _ = random.choices(top_candidates, weights=weights, k=1)[0]
+        return selected_path
+
+    def _select_travel_plan_for_passenger(
+        self,
+        passenger: Passenger,
+        station: Station,
+        station_nodes_dict: Dict[Station, Node],
+    ) -> TravelPlan | None:
+        possible_dst_stations = self.get_destination_stations_for_passenger(passenger)
+        candidate_paths: List[tuple[List[Node], float]] = []
+        start = station_nodes_dict[station]
+        for possible_dst_station in possible_dst_stations:
+            end = station_nodes_dict[possible_dst_station]
+            node_path, path_cost = dijkstra(start, end)
+            if len(node_path) == 1:
+                station.remove_passenger(passenger)
+                self.passengers.remove(passenger)
+                passenger.is_at_destination = True
+                if passenger in self.travel_plans:
+                    del self.travel_plans[passenger]
+                return None
+            if len(node_path) > 1:
+                candidate_paths.append((node_path, path_cost))
+
+        selected_node_path = self._sample_route_candidate(candidate_paths)
+        if selected_node_path is None:
+            return None
+        return self._build_travel_plan_from_node_path(station, selected_node_path)
 
     def generate_distinct_path_colors(self, path_count: int) -> Dict[Color, bool]:
         if path_count <= 0:
@@ -1059,6 +1117,7 @@ class Mediator:
         return (
             passenger in self.travel_plans
             and self.travel_plans[passenger].next_path is not None
+            and self.travel_plans[passenger].next_path in self.paths
         )
 
     def find_next_path_for_passenger_at_station(
@@ -1082,38 +1141,11 @@ class Mediator:
         required_first_path: Path,
         station_nodes_dict: Dict[Station, Node],
     ) -> TravelPlan | None:
-        possible_dst_stations = self.get_destination_stations_for_passenger(passenger)
-        best_node_path: List[Node] | None = None
-        best_path_cost: float | None = None
-        start = station_nodes_dict[station]
-        for possible_dst_station in possible_dst_stations:
-            end = station_nodes_dict[possible_dst_station]
-            node_path, path_cost = dijkstra(start, end)
-            if len(node_path) <= 1:
-                continue
-            reduced_node_path = self.skip_stations_on_same_path(list(node_path))
-            if len(reduced_node_path) <= 1:
-                continue
-            first_hop_path = self.find_shared_path(
-                station, reduced_node_path[1].station
-            )
-            if (
-                first_hop_path is None
-                or first_hop_path.id != required_first_path.id
-            ):
-                continue
-            candidate_cost = path_cost
-            if best_path_cost is None or candidate_cost < best_path_cost:
-                best_path_cost = candidate_cost
-                best_node_path = reduced_node_path
-
-        if best_node_path is None:
+        travel_plan = self.travel_plans.get(passenger)
+        if travel_plan is None or travel_plan.next_path is None:
             return None
-        travel_plan = TravelPlan(best_node_path[1:])
-        next_station = travel_plan.get_next_station()
-        if next_station is None:
+        if travel_plan.next_path.id != required_first_path.id:
             return None
-        travel_plan.next_path = self.find_shared_path(station, next_station)
         return travel_plan
 
     def skip_stations_on_same_path(self, node_path: List[Node]):
@@ -1145,39 +1177,13 @@ class Mediator:
         for station in self.stations:
             for passenger in station.passengers:
                 if not self.passenger_has_travel_plan(passenger):
-                    possible_dst_stations = self.get_destination_stations_for_passenger(
-                        passenger
+                    travel_plan = self._select_travel_plan_for_passenger(
+                        passenger, station, station_nodes_dict
                     )
-                    best_node_path: List[Node] | None = None
-                    best_path_cost: float | None = None
-                    for possible_dst_station in possible_dst_stations:
-                        start = station_nodes_dict[station]
-                        end = station_nodes_dict[possible_dst_station]
-                        node_path, path_cost = dijkstra(start, end)
-                        if len(node_path) == 1:
-                            station.remove_passenger(passenger)
-                            self.passengers.remove(passenger)
-                            passenger.is_at_destination = True
-                            if passenger in self.travel_plans:
-                                del self.travel_plans[passenger]
-                            best_node_path = None
-                            break
-                        elif len(node_path) > 1:
-                            reduced_node_path = self.skip_stations_on_same_path(
-                                list(node_path)
-                            )
-                            candidate_cost = path_cost
-                            if (
-                                best_path_cost is None
-                                or candidate_cost < best_path_cost
-                            ):
-                                best_path_cost = candidate_cost
-                                best_node_path = reduced_node_path
-
-                    if best_node_path is not None:
-                        self.travel_plans[passenger] = TravelPlan(best_node_path[1:])
-                        self.find_next_path_for_passenger_at_station(passenger, station)
+                    if travel_plan is not None:
+                        self.travel_plans[passenger] = travel_plan
                     elif (
-                        not passenger.is_at_destination and passenger not in self.travel_plans
+                        not passenger.is_at_destination
+                        and passenger not in self.travel_plans
                     ):
                         self.travel_plans[passenger] = TravelPlan([])

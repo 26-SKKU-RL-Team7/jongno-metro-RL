@@ -44,6 +44,7 @@ station_snap_blip_width = 3
 # passenger
 passenger_size = 5
 passenger_color = (128, 128, 128)
+passenger_route_choice_top_k = 3
 passenger_spawning_start_step = 1
 passenger_spawning_interval_step = 15 * framerate
 passenger_display_buffer = 3 * passenger_size

@@ -46,7 +46,9 @@ from utils import get_random_color, get_random_position
 class TestMediator(unittest.TestCase):
     def setUp(self):
         self.width, self.height = screen_width, screen_height
-        self.screen = create_autospec(pygame.surface.Surface)
+        if not pygame.get_init():
+            pygame.init()
+        self.screen = pygame.Surface((self.width, self.height))
         self.position = get_random_position(self.width, self.height)
         self.color = get_random_color()
         self.mediator = Mediator()
@@ -359,7 +361,10 @@ class TestMediator(unittest.TestCase):
         screen.get_width.return_value = screen_width
         screen.get_height.return_value = screen_height
         overlay = MagicMock()
-        with patch("mediator.pygame.Surface", return_value=overlay) as surface_mock:
+        with (
+            patch("mediator.pygame.Surface", return_value=overlay) as surface_mock,
+            patch("mediator.pygame.draw.rect") as draw_rect_mock,
+        ):
             title_surface = MagicMock()
             title_surface.get_rect.return_value = MagicMock()
             score_surface = MagicMock()
@@ -377,6 +382,7 @@ class TestMediator(unittest.TestCase):
             mediator.render(screen)
 
         surface_mock.assert_called_once_with((screen_width, screen_height), pygame.SRCALPHA)
+        self.assertGreaterEqual(draw_rect_mock.call_count, 2)
         overlay.fill.assert_called_once()
         screen.blit.assert_any_call(overlay, (0, 0))
         self.assertGreaterEqual(mediator.font.render.call_count, 1)
@@ -865,14 +871,15 @@ class TestMediator(unittest.TestCase):
         mediator.get_stations_for_shape_type = MagicMock(
             return_value=[long_destination, short_destination]
         )
-        mediator.find_travel_plan_for_passengers()
-        mediator.move_passengers(1000)
+        with patch("mediator.random.choices", side_effect=lambda seq, weights, k: [seq[0]]):
+            mediator.find_travel_plan_for_passengers()
+            mediator.move_passengers(1000)
 
         self.assertIn(passenger, metro.passengers)
         self.assertNotIn(passenger, start_station.passengers)
         self.assertEqual(mediator.travel_plans[passenger].next_path, short_path)
 
-    def test_passenger_boards_first_arriving_eligible_metro(self):
+    def test_passenger_keeps_spawn_time_route_choice(self):
         mediator = Mediator()
         start_station = Station(
             Rect(station_color, 2 * station_size, 2 * station_size), Point(0, 0)
@@ -912,14 +919,56 @@ class TestMediator(unittest.TestCase):
         start_station.add_passenger(passenger)
         mediator.passengers = [passenger]
 
-        mediator.find_travel_plan_for_passengers()
+        with patch("mediator.random.choices", side_effect=lambda seq, weights, k: [seq[0]]):
+            mediator.find_travel_plan_for_passengers()
         self.assertEqual(mediator.travel_plans[passenger].next_path, short_path)
 
         mediator.move_passengers(1000)
 
-        self.assertIn(passenger, metro.passengers)
-        self.assertNotIn(passenger, start_station.passengers)
-        self.assertEqual(mediator.travel_plans[passenger].next_path, long_path)
+        self.assertNotIn(passenger, metro.passengers)
+        self.assertIn(passenger, start_station.passengers)
+        self.assertEqual(mediator.travel_plans[passenger].next_path, short_path)
+
+    def test_passenger_route_sampling_uses_only_top_three_shortest_paths(self):
+        mediator = Mediator()
+        start_station = Station(
+            Rect(station_color, 2 * station_size, 2 * station_size), Point(0, 0)
+        )
+        destination_stations = [
+            Station(Triangle(station_color, station_size), Point(10, 0)),
+            Station(Triangle(station_color, station_size), Point(20, 0)),
+            Station(Triangle(station_color, station_size), Point(30, 0)),
+            Station(Triangle(station_color, station_size), Point(40, 0)),
+        ]
+        mediator.stations = [start_station, *destination_stations]
+
+        paths = []
+        for idx, destination_station in enumerate(destination_stations):
+            path = Path((10 + idx, 20 + idx, 30 + idx))
+            path.add_station(start_station)
+            path.add_station(destination_station)
+            paths.append(path)
+        mediator.paths = paths
+
+        passenger = Passenger(destination_stations[0].shape)
+        start_station.add_passenger(passenger)
+        mediator.passengers = [passenger]
+        mediator.get_stations_for_shape_type = MagicMock(return_value=destination_stations)
+
+        captured_candidates = {}
+
+        def pick_last_candidate(seq, weights, k):
+            captured_candidates["stations"] = [candidate[0][-1].station for candidate in seq]
+            return [seq[-1]]
+
+        with patch("mediator.random.choices", side_effect=pick_last_candidate):
+            mediator.find_travel_plan_for_passengers()
+
+        self.assertEqual(
+            captured_candidates["stations"],
+            destination_stations[:3],
+        )
+        self.assertEqual(mediator.travel_plans[passenger].next_path, paths[2])
 
     def test_metro_stops_to_board_then_accelerates(self):
         mediator = Mediator()
